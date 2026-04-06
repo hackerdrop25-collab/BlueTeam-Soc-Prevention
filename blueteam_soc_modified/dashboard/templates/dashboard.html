@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>BlueTeam SOC — Threat Detection Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&display=swap');
+
+  :root {
+    --bg:        #04070f;
+    --panel:     #080e1a;
+    --border:    #0e1f3a;
+    --accent:    #00d4ff;
+    --accent2:   #0066ff;
+    --critical:  #ff2a2a;
+    --high:      #ff7700;
+    --medium:    #f5c400;
+    --low:       #00e676;
+    --text:      #b8d0ee;
+    --dim:       #4a6080;
+    --font-mono: 'Roboto Mono', 'Courier New', monospace;
+    --font-ui:   'Inter', 'Roboto', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,.15) 2px, rgba(0,0,0,.15) 4px
+    );
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* ── Header ───────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, #020a15 0%, #050d1e 100%);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    font-family: var(--font-mono);
+    font-size: 1.15rem;
+    color: var(--accent);
+    letter-spacing: .12em;
+    text-shadow: 0 0 18px var(--accent);
+  }
+  .logo span { color: var(--dim); font-size: .7rem; display: block; }
+  .header-right { display: flex; align-items: center; gap: 18px; }
+  #connection-status {
+    font-family: var(--font-mono);
+    font-size: .75rem;
+    padding: 3px 10px;
+    border-radius: 2px;
+    border: 1px solid var(--dim);
+    color: var(--dim);
+    transition: all .3s;
+  }
+  #connection-status.live {
+    border-color: var(--low);
+    color: var(--low);
+    text-shadow: 0 0 8px var(--low);
+    box-shadow: inset 0 0 8px rgba(0,230,118,.08);
+  }
+  #clock {
+    font-family: var(--font-mono);
+    font-size: .9rem;
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* ── Layout ───────────────────────────────────── */
+  .main { padding: 20px 24px; }
+
+  /* ── KPI strip ───────────────────────────────── */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--dim);
+    padding: 14px 18px;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .25s;
+  }
+  .kpi.critical { border-top-color: var(--critical); }
+  .kpi.high     { border-top-color: var(--high); }
+  .kpi.medium   { border-top-color: var(--medium); }
+  .kpi.low      { border-top-color: var(--low); }
+  .kpi.total    { border-top-color: var(--accent); }
+  .kpi label { font-size: .7rem; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+  .kpi .num  {
+    font-family: var(--font-mono);
+    font-size: 2.2rem;
+    line-height: 1;
+    margin: 4px 0;
+    color: #fff;
+    text-shadow: 0 0 14px currentColor;
+  }
+  .kpi.critical .num { color: var(--critical); }
+  .kpi.high     .num { color: var(--high); }
+  .kpi.medium   .num { color: var(--medium); }
+  .kpi.low      .num { color: var(--low); }
+  .kpi.total    .num { color: var(--accent); }
+
+  /* ── Grid ─────────────────────────────────────── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+  /* ── Panel ────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: .75rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent);
+    font-weight: 600;
+    background: rgba(0,212,255,.04);
+  }
+  .panel-body { padding: 14px; }
+
+  /* ── Alert feed ───────────────────────────────── */
+  #alert-feed { max-height: 420px; overflow-y: auto; }
+  .alert-row {
+    border-left: 3px solid var(--dim);
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    background: rgba(255,255,255,.02);
+    border-radius: 0 2px 2px 0;
+    transition: background .2s;
+    cursor: default;
+    animation: slideIn .3s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:none; } }
+  .alert-row:hover { background: rgba(0,212,255,.06); }
+  .alert-row.CRITICAL { border-left-color: var(--critical); }
+  .alert-row.HIGH     { border-left-color: var(--high); }
+  .alert-row.MEDIUM   { border-left-color: var(--medium); }
+  .alert-row.LOW      { border-left-color: var(--low); }
+  .alert-title { font-weight: 700; font-size: .92rem; color: #e0ecff; margin-bottom: 3px; }
+  .alert-meta  { font-family: var(--font-mono); font-size: .72rem; color: var(--dim); }
+  .badge {
+    display: inline-block;
+    font-family: var(--font-mono); font-size: .68rem;
+    padding: 1px 7px; border-radius: 1px; font-weight: 700;
+    letter-spacing: .08em; margin-right: 6px;
+  }
+  .badge.CRITICAL { background: rgba(255,42,42,.15); color: var(--critical); border: 1px solid var(--critical); }
+  .badge.HIGH     { background: rgba(255,119,0,.12); color: var(--high);     border: 1px solid var(--high); }
+  .badge.MEDIUM   { background: rgba(245,196,0,.1);  color: var(--medium);   border: 1px solid var(--medium); }
+  .badge.LOW      { background: rgba(0,230,118,.08); color: var(--low);      border: 1px solid var(--low); }
+  .badge.mitre { background: rgba(0,102,255,.1); color: #7ab4ff; border: 1px solid #0066ff; }
+
+  /* ── Chart canvases ───────────────────────────── */
+  canvas { max-height: 220px; }
+
+  /* ── Sim panel ───────────────────────────────── */
+  .sim-controls { display: flex; flex-direction: column; gap: 10px; }
+  select, input {
+    width: 100%;
+    background: #060d1a;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    font-family: var(--font-ui);
+    font-size: .85rem;
+    border-radius: 2px;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  .btn {
+    padding: 9px 18px;
+    font-family: var(--font-ui); font-size: .85rem; font-weight: 700;
+    letter-spacing: .1em; text-transform: uppercase;
+    border: none; border-radius: 2px; cursor: pointer;
+    transition: all .2s;
+  }
+  .btn-attack {
+    background: linear-gradient(90deg, #c00 0%, #ff2a2a 100%);
+    color: #fff;
+    box-shadow: 0 0 16px rgba(255,42,42,.35);
+  }
+  .btn-attack:hover { box-shadow: 0 0 26px rgba(255,42,42,.6); transform: translateY(-1px); }
+  .btn-clear {
+    background: rgba(0,212,255,.08);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .btn-clear:hover { background: rgba(0,212,255,.18); }
+  #sim-status { font-family: var(--font-mono); font-size: .75rem; color: var(--low); min-height: 18px; }
+
+  /* ── MITRE table ──────────────────────────────── */
+  #mitre-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  #mitre-table th {
+    text-align: left; padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--dim); font-size: .7rem; letter-spacing: .1em;
+  }
+  #mitre-table td { padding: 6px 10px; border-bottom: 1px solid rgba(14,31,58,.6); }
+  #mitre-table tr:hover td { background: rgba(0,212,255,.04); }
+
+  /* ── Scrollbar ────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Timeline ─────────────────────────────────── */
+  #timeline { max-height: 200px; overflow-y: auto; }
+  .tl-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(14,31,58,.5);
+    font-family: var(--font-mono); font-size: .72rem;
+  }
+  .tl-time { color: var(--dim); min-width: 140px; }
+  .tl-title { color: var(--text); }
+
+  @media(max-width:900px) {
+    .kpi-strip { grid-template-columns: repeat(3,1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  /* ── Active Response Engine ───────────────────────────── */
+  .resp-kpi-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+  .resp-kpi { background:rgba(0,212,255,.04); border:1px solid var(--border); border-top:3px solid var(--accent2); border-radius:2px; padding:10px 14px; text-align:center; }
+  .resp-kpi.blocked { border-top-color:var(--critical); }
+  .resp-kpi.killed  { border-top-color:var(--high); }
+  .resp-kpi.quar    { border-top-color:var(--medium); }
+  .resp-kpi.actions { border-top-color:var(--accent); }
+  .resp-kpi label   { font-size:.68rem; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; display:block; }
+  .resp-kpi .resp-num { font-family:var(--font-mono); font-size:1.8rem; color:#fff; line-height:1.2; }
+  .resp-kpi.blocked .resp-num { color:var(--critical); }
+  .resp-kpi.killed  .resp-num { color:var(--high); }
+  .resp-kpi.quar    .resp-num { color:var(--medium); }
+  .resp-kpi.actions .resp-num { color:var(--accent); }
+  .resp-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+  .resp-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+  .resp-table th { text-align:left; padding:5px 10px; border-bottom:1px solid var(--border); color:var(--dim); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; }
+  .resp-table td { padding:5px 10px; border-bottom:1px solid rgba(14,31,58,.5); }
+  .resp-table tr:hover td { background:rgba(0,212,255,.04); }
+  .action-badge { display:inline-block; font-family:var(--font-mono); font-size:.64rem; padding:1px 6px; border-radius:1px; font-weight:700; letter-spacing:.06em; white-space:nowrap; }
+  .action-badge.block_ip        { background:rgba(255,42,42,.12);  color:var(--critical); border:1px solid var(--critical); }
+  .action-badge.kill_process    { background:rgba(255,119,0,.1);   color:var(--high);     border:1px solid var(--high); }
+  .action-badge.quarantine_file { background:rgba(245,196,0,.1);   color:var(--medium);   border:1px solid var(--medium); }
+  .action-badge.disable_user    { background:rgba(0,102,255,.1);   color:#7ab4ff;         border:1px solid #0066ff; }
+  .action-badge.isolate_host    { background:rgba(255,42,42,.08);  color:#ff7ab4;         border:1px solid #ff4488; }
+  .action-badge.alert_soc       { background:rgba(0,212,255,.08);  color:var(--accent);   border:1px solid var(--accent); }
+  .action-badge.log_only        { background:rgba(74,96,128,.1);   color:var(--dim);      border:1px solid var(--dim); }
+  .action-badge.monitor         { background:rgba(0,230,118,.08);  color:var(--low);      border:1px solid var(--low); }
+  .action-badge.unblock_ip      { background:rgba(0,230,118,.1);   color:var(--low);      border:1px solid var(--low); }
+  .safe-mode-pill { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:.72rem; padding:3px 10px; border-radius:2px; border:1px solid var(--low); color:var(--low); }
+  .safe-mode-pill.live { border-color:var(--critical); color:var(--critical); }
+  .override-btn { background:none; border:1px solid var(--dim); color:var(--dim); font-family:var(--font-mono); font-size:.65rem; padding:2px 7px; border-radius:1px; cursor:pointer; transition:all .2s; }
+  .override-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .override-btn.restore:hover { border-color:var(--low); color:var(--low); }
+  .resp-status-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:4px; }
+  .resp-status-dot.success { background:var(--low); }
+  .resp-status-dot.failed  { background:var(--critical); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    ■ BLUETEAM SOC
+    <span>UNIFIED THREAT DETECTION SYSTEM v2.0</span>
+  </div>
+  <div class="header-right">
+    <div id="connection-status">● CONNECTING</div>
+    <div id="clock">--:--:--</div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- KPI Strip -->
+  <div class="kpi-strip">
+    <div class="kpi total">
+      <label>Total Alerts</label>
+      <div class="num" id="kpi-total">0</div>
+    </div>
+    <div class="kpi critical">
+      <label>Critical</label>
+      <div class="num" id="kpi-critical">0</div>
+    </div>
+    <div class="kpi high">
+      <label>High</label>
+      <div class="num" id="kpi-high">0</div>
+    </div>
+    <div class="kpi medium">
+      <label>Medium</label>
+      <div class="num" id="kpi-medium">0</div>
+    </div>
+    <div class="kpi low">
+      <label>Low</label>
+      <div class="num" id="kpi-low">0</div>
+    </div>
+  </div>
+
+  <!-- Row 1: Alert Feed + Pie + Sim -->
+  <div class="grid-3">
+    <!-- Alert feed (left) -->
+    <div class="panel">
+      <div class="panel-head">
+        Live Alert Feed
+        <span id="alert-count" style="color:var(--dim);font-size:.7rem;">0 events</span>
+      </div>
+      <div class="panel-body" style="padding:10px;">
+        <div id="alert-feed"></div>
+      </div>
+    </div>
+
+    <!-- Right column -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <!-- Donut chart -->
+      <div class="panel">
+        <div class="panel-head">Severity Distribution</div>
+        <div class="panel-body" style="text-align:center;">
+          <canvas id="chart-sev"></canvas>
+        </div>
+      </div>
+
+      <!-- Simulation panel -->
+      <div class="panel">
+        <div class="panel-head">Attack Simulator</div>
+        <div class="panel-body">
+          <div class="sim-controls">
+            <select id="sim-scenario">
+              <option value="full_chain">Full APT Kill Chain</option>
+            </select>
+            <input id="sim-host" type="text" placeholder="Host (WORKSTATION-01)" value="WORKSTATION-01"/>
+            <input id="sim-user" type="text" placeholder="Username (attacker)" value="attacker"/>
+            <button class="btn btn-attack" onclick="runSimulation()">▶ Launch Attack</button>
+            <button class="btn btn-clear" onclick="clearAlerts()">✕ Clear All Alerts</button>
+            <div id="sim-status"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: Detection breakdown + Timeline -->
+  <div class="grid-2">
+    <!-- Bar chart: detections -->
+    <div class="panel">
+      <div class="panel-head">Alerts by Detection Type</div>
+      <div class="panel-body">
+        <canvas id="chart-det"></canvas>
+      </div>
+    </div>
+
+    <!-- Alert timeline -->
+    <div class="panel">
+      <div class="panel-head">Alert Timeline</div>
+      <div class="panel-body" style="padding:10px;">
+        <div id="timeline"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MITRE ATT&CK table -->
+  <div class="panel">
+    <div class="panel-head">MITRE ATT&CK Coverage</div>
+    <div class="panel-body" style="padding:10px;">
+      <table id="mitre-table">
+        <thead>
+          <tr>
+            <th>Technique ID</th>
+            <th>Tactic</th>
+            <th>Title</th>
+            <th>Severity</th>
+            <th>Risk Score</th>
+            <th>Host</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="mitre-body"></tbody>
+      </table>
+    </div>
+  </div>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ACTIVE PREVENTION & RESPONSE ENGINE                   -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="panel" style="margin-bottom:20px;">
+    <div class="panel-head" style="border-bottom-color:var(--accent2);">
+      <span style="color:var(--critical);">⚡</span>&nbsp; Active Prevention &amp; Response Engine
+      <span style="display:flex;align-items:center;gap:12px;">
+        <span id="safe-mode-indicator" class="safe-mode-pill">● SAFE MODE</span>
+        <button class="override-btn" onclick="toggleSafeMode()" title="Toggle Safe Mode">TOGGLE MODE</button>
+        <button class="override-btn" onclick="clearResponseLogs()" title="Clear response logs">CLEAR LOGS</button>
+      </span>
+    </div>
+    <div class="panel-body">
+
+      <!-- Response KPIs -->
+      <div class="resp-kpi-strip">
+        <div class="resp-kpi blocked">
+          <label>Blocked IPs</label>
+          <div class="resp-num" id="resp-blocked-count">0</div>
+        </div>
+        <div class="resp-kpi killed">
+          <label>Killed Processes</label>
+          <div class="resp-num" id="resp-killed-count">0</div>
+        </div>
+        <div class="resp-kpi quar">
+          <label>Quarantined Files</label>
+          <div class="resp-num" id="resp-quar-count">0</div>
+        </div>
+        <div class="resp-kpi actions">
+          <label>Total Actions</label>
+          <div class="resp-num" id="resp-actions-count">0</div>
+        </div>
+      </div>
+
+      <!-- Blocked IPs + Killed Processes (side by side) -->
+      <div class="resp-grid">
+        <!-- Blocked IPs -->
+        <div class="panel" style="background:rgba(255,42,42,.03);">
+          <div class="panel-head" style="color:var(--critical);font-size:.7rem;">
+            🚫 Blocked IPs
+          </div>
+          <div class="panel-body" style="padding:8px;max-height:180px;overflow-y:auto;">
+            <table class="resp-table">
+              <thead><tr><th>IP Address</th><th>Reason</th><th>Time</th><th>Action</th></tr></thead>
+              <tbody id="blocked-ip-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Killed Processes -->
+        <div class="panel" style="background:rgba(255,119,0,.03);">
+          <div class="panel-head" style="color:var(--high);font-size:.7rem;">
+            ☠ Killed Processes
+          </div>
+          <div class="panel-body" style="padding:8px;max-height:180px;overflow-y:auto;">
+            <table class="resp-table">
+              <thead><tr><th>Process</th><th>Reason</th><th>Mode</th><th>Time</th></tr></thead>
+              <tbody id="killed-procs-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quarantined Files -->
+      <div class="panel" style="background:rgba(245,196,0,.02);margin-bottom:14px;">
+        <div class="panel-head" style="color:var(--medium);font-size:.7rem;">
+          🗂 Quarantined Files
+        </div>
+        <div class="panel-body" style="padding:8px;max-height:150px;overflow-y:auto;">
+          <table class="resp-table">
+            <thead><tr><th>Original Path</th><th>Quarantine Path</th><th>Mode</th><th>Time</th><th>Action</th></tr></thead>
+            <tbody id="quarantine-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Response Action History -->
+      <div class="panel">
+        <div class="panel-head" style="font-size:.7rem;">
+          📋 Response Action History
+          <span id="resp-log-count" style="color:var(--dim);font-size:.65rem;">0 actions</span>
+        </div>
+        <div class="panel-body" style="padding:8px;max-height:220px;overflow-y:auto;">
+          <table class="resp-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Threat</th>
+                <th>Severity</th>
+                <th>Action</th>
+                <th>Status</th>
+                <th>Mode</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="resp-log-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- .main -->
+
+<script>
+// ── Clock ─────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toISOString().slice(11,19) + ' UTC';
+}, 1000);
+
+// ── Socket ────────────────────────────────────────────────
+const socket = io();
+socket.on('connect', () => {
+  const s = document.getElementById('connection-status');
+  s.textContent = '● LIVE'; s.classList.add('live');
+});
+socket.on('disconnect', () => {
+  const s = document.getElementById('connection-status');
+  s.textContent = '● OFFLINE'; s.classList.remove('live');
+});
+socket.on('new_alerts', data => {
+  data.alerts.forEach(a => prependAlert(a));
+  refreshStats(data.stats);
+  updateTimeline(data.alerts);
+  updateMitreTable(data.alerts);
+});
+
+// ── Charts ────────────────────────────────────────────────
+const sevCtx = document.getElementById('chart-sev').getContext('2d');
+const sevChart = new Chart(sevCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['Critical','High','Medium','Low'],
+    datasets: [{ data: [0,0,0,0],
+      backgroundColor: ['#ff2a2a','#ff7700','#f5c400','#00e676'],
+      borderColor: '#080e1a', borderWidth: 3 }]
+  },
+  options: {
+    plugins: { legend: { labels: { color: '#b8d0ee', font: { family: 'Inter' } } } },
+    cutout: '65%'
+  }
+});
+
+const detCtx = document.getElementById('chart-det').getContext('2d');
+const detChart = new Chart(detCtx, {
+  type: 'bar',
+  data: { labels: [], datasets: [{ label: 'Count',
+    data: [], backgroundColor: 'rgba(0,212,255,.4)',
+    borderColor: '#00d4ff', borderWidth: 1 }] },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#4a6080' }, grid: { color: '#0e1f3a' } },
+      y: { ticks: { color: '#4a6080', stepSize: 1 }, grid: { color: '#0e1f3a' } }
+    }
+  }
+});
+
+// ── Load initial data ─────────────────────────────────────
+async function loadInitial() {
+  const [alertsRes, statsRes, scenRes] = await Promise.all([
+    fetch('/api/alerts?limit=50'), fetch('/api/stats'), fetch('/api/scenarios')
+  ]);
+  const alerts = await alertsRes.json();
+  const stats  = await statsRes.json();
+  const scens  = await scenRes.json();
+
+  alerts.slice().reverse().forEach(a => prependAlert(a));
+  refreshStats(stats);
+  updateTimeline(alerts.slice(0,20));
+  updateMitreTable(alerts.filter(a => a.mitre_id));
+
+  const sel = document.getElementById('sim-scenario');
+  sel.innerHTML = scens.map(s =>
+    `<option value="${s}">${s.replace(/_/g,' ').toUpperCase()}</option>`
+  ).join('');
+}
+
+// ── Alert DOM ─────────────────────────────────────────────
+function prependAlert(a) {
+  const feed = document.getElementById('alert-feed');
+  const div  = document.createElement('div');
+  div.className = `alert-row ${a.severity}`;
+  div.innerHTML = `
+    <div class="alert-title">
+      <span class="badge ${a.severity}">${a.severity}</span>
+      ${a.mitre_id ? `<span class="badge mitre">${a.mitre_id}</span>` : ''}
+      ${a.title}
+    </div>
+    <div class="alert-meta">
+      ${a.timestamp.slice(0,19)}  ·  ${a.hostname}  ·  ${a.username||'—'}
+      ·  Risk: ${a.risk_score}/100
+    </div>`;
+  feed.prepend(div);
+  const cnt = document.getElementById('alert-count');
+  cnt.textContent = `${feed.children.length} events`;
+  // Limit DOM to 150
+  while (feed.children.length > 150) feed.removeChild(feed.lastChild);
+}
+
+// ── Stats refresh ─────────────────────────────────────────
+function refreshStats(stats) {
+  document.getElementById('kpi-total').textContent    = stats.total    || 0;
+  document.getElementById('kpi-critical').textContent = stats.CRITICAL || 0;
+  document.getElementById('kpi-high').textContent     = stats.HIGH     || 0;
+  document.getElementById('kpi-medium').textContent   = stats.MEDIUM   || 0;
+  document.getElementById('kpi-low').textContent      = stats.LOW      || 0;
+
+  sevChart.data.datasets[0].data = [
+    stats.CRITICAL||0, stats.HIGH||0, stats.MEDIUM||0, stats.LOW||0
+  ];
+  sevChart.update();
+
+  if (stats.by_detection) {
+    const labels = Object.keys(stats.by_detection);
+    const data   = Object.values(stats.by_detection);
+    detChart.data.labels = labels;
+    detChart.data.datasets[0].data = data;
+    detChart.update();
+  }
+}
+
+// ── Timeline ──────────────────────────────────────────────
+function updateTimeline(alerts) {
+  const tl = document.getElementById('timeline');
+  alerts.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'tl-row';
+    row.innerHTML = `
+      <span class="tl-time">${(a.timestamp||'').slice(0,19)}</span>
+      <span class="badge ${a.severity}" style="min-width:70px;text-align:center">${a.severity}</span>
+      <span class="tl-title">${a.title}</span>`;
+    tl.prepend(row);
+    while (tl.children.length > 50) tl.removeChild(tl.lastChild);
+  });
+}
+
+// ── MITRE table ───────────────────────────────────────────
+function updateMitreTable(alerts) {
+  const tbody = document.getElementById('mitre-body');
+  alerts.filter(a => a.mitre_id).forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="badge mitre">${a.mitre_id}</span></td>
+      <td>${a.mitre_tactic||'—'}</td>
+      <td>${a.title}</td>
+      <td><span class="badge ${a.severity}">${a.severity}</span></td>
+      <td style="font-family:var(--font-mono)">${a.risk_score}/100</td>
+      <td>${a.hostname||'—'}</td>
+      <td style="font-family:var(--font-mono);font-size:.7rem">${(a.timestamp||'').slice(0,19)}</td>`;
+    tbody.prepend(tr);
+    while (tbody.children.length > 80) tbody.removeChild(tbody.lastChild);
+  });
+}
+
+// ── Simulation ────────────────────────────────────────────
+async function runSimulation() {
+  const scenario = document.getElementById('sim-scenario').value;
+  const host     = document.getElementById('sim-host').value || 'WORKSTATION-01';
+  const user     = document.getElementById('sim-user').value || 'attacker';
+  const status   = document.getElementById('sim-status');
+  status.textContent = '⟳ Injecting attack events…';
+
+  const res = await fetch('/api/simulate', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({scenario, host, user})
+  });
+  const data = await res.json();
+  status.textContent = data.error
+    ? `✗ ${data.error}`
+    : `✓ ${data.scenario} launched — monitoring for detections…`;
+  setTimeout(() => { status.textContent = ''; }, 5000);
+}
+
+async function clearAlerts() {
+  await fetch('/api/clear', {method:'POST'});
+  document.getElementById('alert-feed').innerHTML  = '';
+  document.getElementById('timeline').innerHTML    = '';
+  document.getElementById('mitre-body').innerHTML  = '';
+  document.getElementById('alert-count').textContent = '0 events';
+  refreshStats({total:0,CRITICAL:0,HIGH:0,MEDIUM:0,LOW:0,by_detection:{}});
+}
+
+// ── Boot ──────────────────────────────────────────────────
+loadInitial();
+loadResponseSummary();
+
+// ══════════════════════════════════════════════════════════
+// ACTIVE RESPONSE ENGINE — JavaScript
+// ══════════════════════════════════════════════════════════
+
+// ── Socket events for live response updates ───────────────
+socket.on('response_update', data => {
+  refreshResponsePanel(data);
+});
+socket.on('new_alerts', data => {
+  if (data.response) refreshResponsePanel(data.response);
+});
+
+// ── Load initial response state ───────────────────────────
+async function loadResponseSummary() {
+  try {
+    const res  = await fetch('/api/response/summary');
+    const data = await res.json();
+    refreshResponsePanel(data);
+  } catch(e) { console.warn('Response summary load failed', e); }
+}
+
+// ── Refresh the entire Active Response panel ──────────────
+function refreshResponsePanel(data) {
+  if (!data) return;
+
+  // KPIs
+  const c = data.counts || {};
+  document.getElementById('resp-blocked-count').textContent  = c.blocked_ips       || 0;
+  document.getElementById('resp-killed-count').textContent   = c.killed_processes   || 0;
+  document.getElementById('resp-quar-count').textContent     = c.quarantined_files  || 0;
+  document.getElementById('resp-actions-count').textContent  = c.total_actions      || 0;
+
+  // Safe mode indicator
+  const pill = document.getElementById('safe-mode-indicator');
+  if (data.safe_mode === false) {
+    pill.textContent = '⚠ LIVE MODE';
+    pill.classList.add('live');
+  } else {
+    pill.textContent = '● SAFE MODE';
+    pill.classList.remove('live');
+  }
+
+  // Blocked IPs
+  if (data.blocked_ips !== undefined) renderBlockedIps(data.blocked_ips);
+  // Killed Processes
+  if (data.killed_processes !== undefined) renderKilledProcs(data.killed_processes);
+  // Quarantined files
+  if (data.quarantined_files !== undefined) renderQuarantined(data.quarantined_files);
+  // Response logs
+  if (data.response_logs !== undefined) renderResponseLogs(data.response_logs);
+}
+
+// ── Render: Blocked IPs table ─────────────────────────────
+function renderBlockedIps(ips) {
+  const tbody = document.getElementById('blocked-ip-tbody');
+  tbody.innerHTML = '';
+  if (!ips || !ips.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px;">No IPs blocked</td></tr>';
+    return;
+  }
+  ips.slice().reverse().forEach(entry => {
+    const tr = document.createElement('tr');
+    const modeTag = entry.safe_mode
+      ? '<span style="color:var(--low);font-size:.65rem;">SIM</span>'
+      : '<span style="color:var(--critical);font-size:.65rem;">LIVE</span>';
+    tr.innerHTML = `
+      <td style="font-family:var(--font-mono);font-size:.72rem;">${entry.ip}</td>
+      <td style="font-size:.72rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${entry.reason}">${entry.reason||'—'}</td>
+      <td style="font-family:var(--font-mono);font-size:.68rem;">${(entry.blocked_at||'').slice(0,19)}</td>
+      <td>${modeTag} <button class="override-btn" onclick="unblockIp('${entry.ip}')">UNBLOCK</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Render: Killed Processes table ───────────────────────
+function renderKilledProcs(procs) {
+  const tbody = document.getElementById('killed-procs-tbody');
+  tbody.innerHTML = '';
+  if (!procs || !procs.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;padding:10px;">No processes terminated</td></tr>';
+    return;
+  }
+  procs.slice().reverse().forEach(entry => {
+    const tr = document.createElement('tr');
+    const modeTag = entry.safe_mode
+      ? '<span style="color:var(--low);font-size:.65rem;">SIM</span>'
+      : '<span style="color:var(--critical);font-size:.65rem;">LIVE</span>';
+    tr.innerHTML = `
+      <td style="font-family:var(--font-mono);font-size:.72rem;">${entry.process_name}</td>
+      <td style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;" title="${entry.reason}">${entry.reason||'—'}</td>
+      <td>${modeTag}</td>
+      <td style="font-family:var(--font-mono);font-size:.68rem;">${(entry.killed_at||'').slice(0,19)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Render: Quarantined Files table ──────────────────────
+function renderQuarantined(files) {
+  const tbody = document.getElementById('quarantine-tbody');
+  tbody.innerHTML = '';
+  const active = files ? files.filter(f => !f.restored) : [];
+  if (!active.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--dim);text-align:center;padding:10px;">No quarantined files</td></tr>';
+    return;
+  }
+  active.slice().reverse().forEach(entry => {
+    const tr = document.createElement('tr');
+    const modeTag = entry.safe_mode
+      ? '<span style="color:var(--low);font-size:.65rem;">SIM</span>'
+      : '<span style="color:var(--critical);font-size:.65rem;">LIVE</span>';
+    const qpath = entry.quarantine_path || '';
+    tr.innerHTML = `
+      <td style="font-family:var(--font-mono);font-size:.68rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;" title="${entry.original_path}">${entry.original_path||'—'}</td>
+      <td style="font-family:var(--font-mono);font-size:.68rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;" title="${qpath}">${qpath.split(/[/\\]/).pop()||'—'}</td>
+      <td>${modeTag}</td>
+      <td style="font-family:var(--font-mono);font-size:.68rem;">${(entry.quarantined_at||'').slice(0,19)}</td>
+      <td><button class="override-btn restore" onclick="restoreFile('${qpath.replace(/'/g,"\\'")}')">RESTORE</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Render: Response Action History ──────────────────────
+function renderResponseLogs(logs) {
+  const tbody = document.getElementById('resp-log-tbody');
+  const count = document.getElementById('resp-log-count');
+  tbody.innerHTML = '';
+  if (!logs || !logs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);text-align:center;padding:10px;">No response actions yet</td></tr>';
+    count.textContent = '0 actions';
+    return;
+  }
+  count.textContent = `${logs.length} actions`;
+  logs.forEach(entry => {
+    const tr = document.createElement('tr');
+    const dot = entry.success
+      ? '<span class="resp-status-dot success"></span>'
+      : '<span class="resp-status-dot failed"></span>';
+    const modeTag = entry.safe_mode
+      ? '<span style="color:var(--low);font-size:.65rem;">SIM</span>'
+      : '<span style="color:var(--critical);font-size:.65rem;">LIVE</span>';
+    const actionClass = (entry.action||'').replace(/[^a-z_]/g,'');
+    tr.innerHTML = `
+      <td style="font-family:var(--font-mono);font-size:.68rem;white-space:nowrap;">${(entry.time||'').slice(0,19)}</td>
+      <td style="font-size:.72rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${entry.threat}">${entry.threat||'—'}</td>
+      <td><span class="badge ${entry.severity||'LOW'}">${entry.severity||'LOW'}</span></td>
+      <td><span class="action-badge ${actionClass}">${(entry.action||'').replace(/_/g,' ').toUpperCase()}</span></td>
+      <td>${dot}${entry.status||'—'}</td>
+      <td>${modeTag}</td>
+      <td style="font-size:.7rem;color:var(--dim);max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="${entry.detail||''}">${entry.detail||'—'}</td>`;
+    tbody.appendChild(tr);
+    while (tbody.children.length > 100) tbody.removeChild(tbody.lastChild);
+  });
+}
+
+// ── Manual override: Unblock IP ───────────────────────────
+async function unblockIp(ip) {
+  const res  = await fetch('/api/response/unblock_ip', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ip})
+  });
+  const data = await res.json();
+  if (data.success) loadResponseSummary();
+  else alert(`Unblock failed: ${data.reason || JSON.stringify(data)}`);
+}
+
+// ── Manual override: Restore quarantined file ─────────────
+async function restoreFile(quarantine_path) {
+  const res  = await fetch('/api/response/restore_file', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({quarantine_path})
+  });
+  const data = await res.json();
+  if (data.success) loadResponseSummary();
+  else alert(`Restore failed: ${data.reason || JSON.stringify(data)}`);
+}
+
+// ── Toggle Safe Mode ──────────────────────────────────────
+async function toggleSafeMode() {
+  const res  = await fetch('/api/response/safe_mode');
+  const cur  = await res.json();
+  const next = !cur.safe_mode;
+  const confirm_msg = next
+    ? 'Switch to SAFE MODE? (actions will be simulated only)'
+    : '⚠ Switch to LIVE MODE? Real OS actions will be executed!';
+  if (!confirm(confirm_msg)) return;
+  await fetch('/api/response/safe_mode', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({safe_mode: next})
+  });
+  loadResponseSummary();
+}
+
+// ── Clear response logs ───────────────────────────────────
+async function clearResponseLogs() {
+  await fetch('/api/response/clear_logs', {method:'POST'});
+  loadResponseSummary();
+}
+
+// ── Auto-refresh response panel every 5s ─────────────────
+setInterval(loadResponseSummary, 5000);
+</script>
+</body>
+</html>
