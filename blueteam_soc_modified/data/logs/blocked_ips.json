@@ -1,0 +1,20 @@
+[
+  {
+    "ip": "185.220.101.0",
+    "reason": "Credential Dumping Detected",
+    "alert_id": "ae0d5bdd-3fc",
+    "blocked_at": "2026-04-06T05:34:17.450466",
+    "safe_mode": false,
+    "rule_applied": false,
+    "os_output": "The requested operation requires elevation (Run as administrator).\n\r\n"
+  },
+  {
+    "ip": "192.168.1.200",
+    "reason": "Lateral Movement \u2014 wmic.exe",
+    "alert_id": "135efda0-195",
+    "blocked_at": "2026-04-06T05:35:15.656014",
+    "safe_mode": false,
+    "rule_applied": false,
+    "os_output": "The requested operation requires elevation (Run as administrator).\n\r\n"
+  }
+]

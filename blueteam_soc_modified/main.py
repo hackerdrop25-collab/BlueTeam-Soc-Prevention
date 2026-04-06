@@ -65,7 +65,7 @@ def cmd_dashboard(args):
     print(Fore.GREEN + f"  Starting SOC Dashboard on http://{config.FLASK_HOST}:{config.FLASK_PORT}")
     print(Fore.WHITE + "  Open your browser and navigate to the URL above.\n")
     from dashboard.app import socketio, app
-    socketio.run(app, host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False)
+    socketio.run(app, host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False, allow_unsafe_werkzeug=True)
 
 
 def cmd_report(args):

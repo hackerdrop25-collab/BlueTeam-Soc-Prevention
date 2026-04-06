@@ -1,0 +1,57 @@
+[
+  {
+    "EventID": "1",
+    "TimeCreated": "2026-04-06T05:34:13.556581",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "Image": "C:\\Temp\\mimikatz.exe",
+    "ProcessId": "8317",
+    "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+    "CommandLine": "mimikatz.exe sekurlsa::logonpasswords exit"
+  },
+  {
+    "EventID": "1",
+    "TimeCreated": "2026-04-06T05:34:28.339045",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "Image": "C:\\Temp\\mimikatz.exe",
+    "ProcessId": "5093",
+    "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+    "CommandLine": "mimikatz.exe sekurlsa::logonpasswords exit"
+  },
+  {
+    "EventID": "13",
+    "TimeCreated": "2026-04-06T05:34:37.215587",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "TargetObject": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\WindowsUpdate",
+    "Details": "C:\\Users\\Public\\backdoor.exe"
+  },
+  {
+    "EventID": "13",
+    "TimeCreated": "2026-04-06T05:34:59.891774",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "TargetObject": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\WindowsUpdate",
+    "Details": "C:\\Users\\Public\\backdoor.exe"
+  },
+  {
+    "EventID": "13",
+    "TimeCreated": "2026-04-06T05:35:06.240461",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "TargetObject": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\WindowsUpdate",
+    "Details": "C:\\Users\\Public\\backdoor.exe"
+  },
+  {
+    "EventID": "3",
+    "TimeCreated": "2026-04-06T05:35:14.661871",
+    "Computer": "WORKSTATION-01",
+    "User": "attacker",
+    "Image": "C:\\Windows\\System32\\wmic.exe",
+    "ProcessId": "3787",
+    "SourceIp": "192.168.1.50",
+    "DestinationIp": "192.168.1.200",
+    "DestinationPort": "135"
+  }
+]

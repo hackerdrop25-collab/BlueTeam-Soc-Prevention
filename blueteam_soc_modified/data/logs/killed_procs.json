@@ -1,0 +1,13 @@
+[
+  {
+    "process_name": "mimikatz.exe",
+    "pid": 0,
+    "reason": "Credential Dumping Detected",
+    "alert_id": "ae0d5bdd-3fc",
+    "killed_at": "2026-04-06T05:34:14.305037",
+    "safe_mode": false,
+    "actually_killed": false,
+    "pids_killed": [],
+    "error": ""
+  }
+]

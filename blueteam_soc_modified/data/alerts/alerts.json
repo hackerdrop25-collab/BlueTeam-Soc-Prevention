@@ -1,0 +1,74 @@
+[
+  {
+    "alert_id": "0908f4a1-64a",
+    "timestamp": "2026-04-06T05:34:14.206842",
+    "title": "Suspicious Process: mimikatz.exe",
+    "description": "Process 'mimikatz.exe' spawned on WORKSTATION-01. Command: mimikatz.exe sekurlsa::logonpasswords exit",
+    "severity": "MEDIUM",
+    "risk_score": 50,
+    "detection": "suspicious_process",
+    "mitre_id": "T1059",
+    "mitre_tactic": "Execution",
+    "hostname": "WORKSTATION-01",
+    "username": "attacker",
+    "source_events": [
+      "c7ef5856"
+    ],
+    "recommended": "Investigate parent process; check if process is expected.",
+    "auto_response": "Terminate process if risk > 75."
+  },
+  {
+    "alert_id": "ae0d5bdd-3fc",
+    "timestamp": "2026-04-06T05:34:14.207046",
+    "title": "Credential Dumping Detected",
+    "description": "Credential dump activity via 'mimikatz.exe' on WORKSTATION-01. CMD: mimikatz.exe sekurlsa::logonpasswords exit",
+    "severity": "CRITICAL",
+    "risk_score": 95,
+    "detection": "credential_dump",
+    "mitre_id": "T1003",
+    "mitre_tactic": "Credential Access",
+    "hostname": "WORKSTATION-01",
+    "username": "attacker",
+    "source_events": [
+      "c7ef5856"
+    ],
+    "recommended": "Immediate host isolation; full IR engagement; credential rotation.",
+    "auto_response": "Kill process; isolate host; alert CISO."
+  },
+  {
+    "alert_id": "4eec31cb-3e3",
+    "timestamp": "2026-04-06T05:34:39.323274",
+    "title": "Persistence Mechanism Detected",
+    "description": "Modification to persistence location: hklm\\software\\microsoft\\windows\\currentversion\\run\\windowsupdate on WORKSTATION-01",
+    "severity": "HIGH",
+    "risk_score": 70,
+    "detection": "persistence",
+    "mitre_id": "T1547",
+    "mitre_tactic": "Persistence",
+    "hostname": "WORKSTATION-01",
+    "username": "attacker",
+    "source_events": [
+      "b6116441"
+    ],
+    "recommended": "Review registry key / startup file; check if change is authorized.",
+    "auto_response": "Revert registry change; isolate host if unauthorized."
+  },
+  {
+    "alert_id": "135efda0-195",
+    "timestamp": "2026-04-06T05:35:15.647711",
+    "title": "Lateral Movement \u2014 wmic.exe",
+    "description": "'wmic.exe' used on WORKSTATION-01 to reach 192.168.1.200. Possible lateral movement.",
+    "severity": "HIGH",
+    "risk_score": 75,
+    "detection": "lateral_movement",
+    "mitre_id": "T1021",
+    "mitre_tactic": "Lateral Movement",
+    "hostname": "WORKSTATION-01",
+    "username": "attacker",
+    "source_events": [
+      "44685c99"
+    ],
+    "recommended": "Verify if remote admin is authorized; review SMB/WMI logs.",
+    "auto_response": "Isolate source host; notify IR."
+  }
+]
